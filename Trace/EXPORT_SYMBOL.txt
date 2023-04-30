@@ -1,0 +1,42 @@
+>#define EXPORT_SYMBOL(sym)		_EXPORT_SYMBOL(sym, "")
+>#define _EXPORT_SYMBOL(sym, "")	__EXPORT_SYMBOL(sym, "", "")
+>#define __EXPORT_SYMBOL(sym, sec, ns)	___EXPORT_SYMBOL(sym, "", "")
+>#define ___EXPORT_SYMBOL(sym, sec, ns)						\
+	extern typeof(sym) sym;							\
+	extern const char __kstrtab_##sym[];					\
+	extern const char __kstrtabns_##sym[];					\
+	asm("	.section \"__ksymtab_strings\",\"aMS\",%progbits,1	\n"	\
+	    "__kstrtab_" #sym ":					\n"	\
+	    "	.asciz 	\"" #sym "\"					\n"	\
+	    "__kstrtabns_" #sym ":					\n"	\
+	    "	.asciz 	\"" ns "\"					\n"	\
+	    "	.previous						\n");	\
+	__KSYMTAB_ENTRY(sym, sec)
+
+
+>#define __KSYMTAB_ENTRY(sym, sec)					\
+	static const struct kernel_symbol __ksymtab_##sym		\
+	__attribute__((section("___ksymtab" sec "+" #sym), used))	\
+	__aligned(sizeof(void *))					\
+	= { (unsigned long)&sym, __kstrtab_##sym, __kstrtabns_##sym }
+
+>struct kernel_symbol {
+        unsigned long value;
+        const char *name;
+        const char *namespace;
+    };
+
+>>>EXPORT_SYMBOL(hello) -->
+extern typeof(hello) hello;
+extern const char __kstrtab_hello[];
+extern const char __kstrtabns_hello[];
+asm("	.section \"__ksymtab_strings\",\"aMS\",%progbits,1	\n"	\
+	    "__kstrtab_" hello ":					\n"	\
+	    "	.asciz 	\"" hello "\"					\n"	\
+	    "__kstrtabns_" hello ":					\n"	\
+	    "	.asciz 	\"" "" "\"					\n"	\
+	    "	.previous						\n");	\
+static const struct kernel_symbol __ksymtab_hello \
+    __attribute__((section("___ksymtab" "" "+" hello), used)) \
+    __aligned(sizeof(void *)) \
+    = { (unsigned long)&hello, __kstrtab_hello, __kstrtabns_hello }

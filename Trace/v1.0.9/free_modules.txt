@@ -1,0 +1,51 @@
+> int
+free_modules( void)
+{
+	struct module *mp;
+	struct module **mpp;
+	int did_deletion;
+
+	did_deletion = 0;
+	freeing_modules = 0;
+	mpp = &module_list;
+
+	while ((mp = *mpp) != NULL) {
+		if (mp->state != MOD_DELETED) {
+			mpp = &mp->next;
+		} else if (GET_USE_COUNT(mp) != 0) {
+			freeing_modules = 1;
+			mpp = &mp->next;
+		} else {	/* delete it */
+			*mpp = mp->next;
+			vfree(mp->addr); //IF
+			kfree(mp->name);
+			kfree_s(mp, sizeof *mp);
+			did_deletion = 1;
+		}
+	}
+	return did_deletion;
+}
+
+> struct module {
+	struct module *next;
+	char *name;
+	int size;			/* size of module in pages */
+	void* addr;			/* address of module */
+	int state;
+	void (*cleanup)(void);		/* cleanup routine */
+};
+
+> struct module *module_list = NULL;
+
+> 
+/*
+ * The first word of the module contains the use count.
+ */
+#define GET_USE_COUNT(module)	(* (int *) (module)->addr)
+
+> int freeing_modules;		/* true if some modules are marked for deletion */
+
+> //reclaim any memory from dead modules that where not freed when deleted
+
+Summary:
+會去module_list對每個module做檢查，如果有標記要移除，並且use count為0，就做vfree, kfree來刪除。

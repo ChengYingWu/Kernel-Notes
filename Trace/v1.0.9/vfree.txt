@@ -1,0 +1,60 @@
+> void vfree(void * addr)
+{
+	struct vm_struct **p, *tmp;
+
+	if (!addr)
+		return;
+
+	if ((PAGE_SIZE-1) & (unsigned long) addr) {
+		printk("Trying to vfree() bad address (%p)\n", addr);
+		return;
+	}
+
+	for (p = &vmlist ; (tmp = *p) ; p = &tmp->next) {
+		if (tmp->addr == addr) {
+			*p = tmp->next;
+			do_area(tmp->addr, tmp->size, free_area_pages); //free_area_pages IF
+			kfree(tmp); //IF
+			return;
+		}
+	}
+
+	printk("Trying to vfree() nonexistent vm area (%p)\n", addr);
+}
+
+> struct vm_struct {
+	struct vm_struct	*next;
+	void			*addr;
+	unsigned long		size;
+	unsigned long		flags;
+	struct page		**pages;
+	unsigned int		nr_pages;
+	phys_addr_t		phys_addr;
+	const void		*caller;
+};
+
+> static int do_area(void * addr, unsigned long size,
+	int (*area_fn)(unsigned long,unsigned long,unsigned long))
+{
+	unsigned long nr, dindex, index;
+
+	nr = size >> PAGE_SHIFT;
+	dindex = (TASK_SIZE + (unsigned long) addr) >> 22;
+	index = (((unsigned long) addr) >> PAGE_SHIFT) & (PTRS_PER_PAGE-1);
+	while (nr > 0) {
+		unsigned long i = PTRS_PER_PAGE - index;
+
+		if (i > nr)
+			i = nr;
+		nr -= i;
+		if (area_fn(dindex, index, i))
+			return -1;
+		index = 0;
+		dindex++;
+	}
+	return 0;
+}
+
+
+Summary:
+會去vmlist裡面找指定的addr，並清除以此addr為起點，一定範圍內的page，並把用來記錄資訊的page做kfree。

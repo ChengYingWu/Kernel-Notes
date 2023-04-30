@@ -1,0 +1,67 @@
+/*
+ * Free_page() adds the page to the free lists. This is optimized for
+ * fast normal cases (no error jumps taken normally).
+ *
+ * The way to optimize jumps for gcc-2.2.2 is to:
+ *  - select the "normal" case and put it inside the if () { XXX }
+ *  - no else-statements if you can avoid them
+ *
+ * With the above two rules, you get a straight-line execution path
+ * for the normal case, giving better asm-code.
+ */
+
+void free_page(unsigned long addr)
+{
+	if (addr < high_memory) {
+		unsigned short * map = mem_map + MAP_NR(addr);
+
+		if (*map) {
+			if (!(*map & MAP_PAGE_RESERVED)) {
+				unsigned long flag;
+
+				save_flags(flag);
+				cli();
+				if (!--*map) {
+					if (nr_secondary_pages < MAX_SECONDARY_PAGES) {
+						add_mem_queue(addr,&secondary_page_list);
+						nr_secondary_pages++;
+						restore_flags(flag);
+						return;
+					}
+					add_mem_queue(addr,&free_page_list);
+					nr_free_pages++;
+				}
+				restore_flags(flag);
+			}
+			return;
+		}
+		printk("Trying to free free memory (%08lx): memory probabably corrupted\n",addr);
+		printk("PC = %08lx\n",*(((unsigned long *)&addr)-1));
+		return;
+	}
+}
+//用mem_map的位置加上處理過的addr值去取值，沒有值代表是free的memory位置。
+//確認不是free的，並且不是保留的位置，及!--*map(map指向的地方是1?只剩這個page?)，就把這個addr加到free_page_list開頭，nr_free_pages加一。
+
+> unsigned long high_memory = 0; //初始化，應該會變成最大memory addr?
+
+> #define MAP_NR(addr) ((addr) >> PAGE_SHIFT)
+
+> 
+/*
+ * Note that this must be atomic, or bad things will happen when
+ * pages are requested in interrupts (as malloc can do). Thus the
+ * cli/sti's.
+ */
+
+static inline void add_mem_queue(unsigned long addr, unsigned long * queue)
+{
+	addr &= PAGE_MASK;
+	*(unsigned long *) addr = *queue;
+	*queue = addr;
+}
+//addr指向的地方存free_page_list原來的值，free_page_list的位置裡面的值變成addr。single link list方法加到第一個。
+
+
+Summary:
+做些檢查後把這個addr加到free_page_list開頭。

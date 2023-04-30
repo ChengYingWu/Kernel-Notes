@@ -1,0 +1,53 @@
+> static int free_area_pages(unsigned long dindex, unsigned long index, unsigned long nr)
+{
+	unsigned long page, *pte;
+
+	if (!(PAGE_PRESENT & (page = swapper_pg_dir[dindex])))
+		return 0;
+
+	page &= PAGE_MASK;
+	pte = index + (unsigned long *) page;
+
+	do {
+		unsigned long pg = *pte;
+		*pte = 0;
+		if (pg & PAGE_PRESENT)
+			free_page(pg);
+		pte++;
+	} while (--nr);
+    //把pte指向的地方內容變成0，做free_page的移除動作。
+
+	pte = (unsigned long *) page;
+	for (nr = 0 ; nr < 1024 ; nr++, pte++)
+		if (*pte)
+			return 0;
+
+	set_pgdir(dindex,0);
+	mem_map[MAP_NR(page)] = 1;
+
+	free_page(page);
+	invalidate();
+
+	return 0;
+}
+
+> swapper_pg_dir是kernel image mapping初始阶段使用的页表
+
+> static inline void set_pgdir(unsigned long dindex, unsigned long value)
+{
+	struct task_struct * p;
+
+	p = &init_task;
+	do {
+		((unsigned long *) p->tss.cr3)[dindex] = value;
+		p = p->next_task;
+	} while (p != &init_task);
+}
+
+> #define invalidate() __asm__ __volatile__("movl %%cr3,%%eax\n\tmovl %%eax,%%cr3": : :"ax")
+
+
+Summary:
+free_area_pages會接受三個參數，第一個dindex應該是swapper_pg_dir的index，第二個index是start index，第三個nr是page個數。
+pte指向的內容應為某個page位置，它會將這個內容設為0，並且對每個page位置做free_page。
+set_pgdir應該會把所有的sub task值都設成0。

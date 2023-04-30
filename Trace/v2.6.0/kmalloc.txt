@@ -1,0 +1,243 @@
+> static inline void *kmalloc(size_t size, int flags)
+{
+	if (__builtin_constant_p(size)) {
+		int i = 0;
+#define CACHE(x) \
+		if (size <= x) \
+			goto found; \
+		else \
+			i++;
+#include "kmalloc_sizes.h"
+#undef CACHE
+		{
+			extern void __you_cannot_kmalloc_that_much(void);
+			__you_cannot_kmalloc_that_much();
+		}
+found:
+		return kmem_cache_alloc((flags & GFP_DMA) ?
+			malloc_sizes[i].cs_dmacachep :
+			malloc_sizes[i].cs_cachep, flags);
+	}
+	return __kmalloc(size, flags);
+}
+
+> #include "kmalloc_sizes.h"
+
+#if (PAGE_SIZE == 4096)
+	CACHE(32)
+#endif
+	CACHE(64)
+#if L1_CACHE_BYTES < 64
+	CACHE(96)
+#endif
+	CACHE(128)
+#if L1_CACHE_BYTES < 128
+	CACHE(192)
+#endif
+	CACHE(256)
+	CACHE(512)
+	CACHE(1024)
+	CACHE(2048)
+	CACHE(4096)
+	CACHE(8192)
+	CACHE(16384)
+	CACHE(32768)
+	CACHE(65536)
+	CACHE(131072)
+#ifndef CONFIG_MMU
+	CACHE(262144)
+	CACHE(524288)
+	CACHE(1048576)
+#ifdef CONFIG_LARGE_ALLOCS
+	CACHE(2097152)
+	CACHE(4194304)
+	CACHE(8388608)
+	CACHE(16777216)
+	CACHE(33554432)
+#endif /* CONFIG_LARGE_ALLOCS */
+#endif /* CONFIG_MMU */
+
+> 
+/**
+ * kmem_cache_alloc - Allocate an object
+ * @cachep: The cache to allocate from.
+ * @flags: See kmalloc().
+ *
+ * Allocate an object from this cache.  The flags are only relevant
+ * if the cache has no available objects.
+ */
+
+void * kmem_cache_alloc (kmem_cache_t *cachep, int flags)
+{
+	return __cache_alloc(cachep, flags);
+}
+
+EXPORT_SYMBOL(kmem_cache_alloc);
+
+> static inline void * __cache_alloc (kmem_cache_t *cachep, int flags)
+{
+	unsigned long save_flags;
+	void* objp;
+	struct array_cache *ac;
+
+	cache_alloc_debugcheck_before(cachep, flags);
+
+	local_irq_save(save_flags);
+	ac = ac_data(cachep);
+	if (likely(ac->avail)) {
+		STATS_INC_ALLOCHIT(cachep);
+		ac->touched = 1;
+		objp = ac_entry(ac)[--ac->avail];
+	} else {
+		STATS_INC_ALLOCMISS(cachep);
+		objp = cache_alloc_refill(cachep, flags); //IF
+	}
+	local_irq_restore(save_flags);
+	objp = cache_alloc_debugcheck_after(cachep, flags, objp, __builtin_return_address(0));
+	return objp;
+}
+
+> static inline void
+cache_alloc_debugcheck_before(kmem_cache_t *cachep, int flags)
+{
+	might_sleep_if(flags & __GFP_WAIT);
+#if DEBUG
+	kmem_flagcheck(cachep, flags);
+#endif
+}
+
+> #define might_sleep_if(cond) do {} while (0)
+
+> #define __GFP_WAIT	0x10	/* Can wait and reschedule? */
+
+> #define local_irq_save(flags)		do{__save_flags(flags) ; \
+					   __cli();} while(0)
+
+> #define __save_flags(x) \
+       asm volatile ("stc ccr,r0l\n\tmov.l er0,%0":"=r" (x) : : "er0")
+
+> #define __cli() asm volatile ("orc  #0x80,ccr")
+
+> static inline struct array_cache *ac_data(kmem_cache_t *cachep)
+{
+	return cachep->array[smp_processor_id()];
+}
+
+> #define smp_processor_id()			0
+
+> typedef struct kmem_cache_s kmem_cache_t;
+
+> 
+/*
+ * kmem_cache_t
+ *
+ * manages a cache.
+ */
+	
+struct kmem_cache_s {
+/* 1) per-cpu data, touched during every alloc/free */
+	struct array_cache	*array[NR_CPUS];
+	unsigned int		batchcount;
+	unsigned int		limit;
+/* 2) touched by every alloc & free from the backend */
+	struct kmem_list3	lists;
+	/* NUMA: kmem_3list_t	*nodelists[MAX_NUMNODES] */
+	unsigned int		objsize;
+	unsigned int	 	flags;	/* constant flags */
+	unsigned int		num;	/* # of objs per slab */
+	unsigned int		free_limit; /* upper limit of objects in the lists */
+				spinlock;
+
+/* 3) cache_grow/shrink */
+	/* order of pgs per slab (2^n) */
+	unsigned int		gfporder;
+
+	/* force GFP flags, e.g. GFP_DMA */
+	unsigned int		gfpflags;
+
+	size_t			colour;		/* cache colouring range */
+	unsigned int		colour_off;	/* colour offset */
+	unsigned int		colour_next;	/* cache colouring */
+	kmem_cache_t		*slabp_cache;
+	unsigned int		dflags;		/* dynamic flags */
+
+	/* constructor func */
+	void (*ctor)(void *, kmem_cache_t *, unsigned long);
+
+	/* de-constructor func */
+	void (*dtor)(void *, kmem_cache_t *, unsigned long);
+
+/* 4) cache creation/removal */
+	const char		*name;
+	struct list_head	next;
+
+/* 5) statistics */
+#if STATS
+	unsigned long		num_active;
+	unsigned long		num_allocations;
+	unsigned long		high_mark;
+	unsigned long		grown;
+	unsigned long		reaped;
+	unsigned long 		errors;
+	unsigned long		max_freeable;
+	atomic_t		allochit;
+	atomic_t		allocmiss;
+	atomic_t		freehit;
+	atomic_t		freemiss;
+#endif
+#if DEBUG
+	int			dbghead;
+	int			reallen;
+#endif
+};
+
+> 
+/*
+ * Generic compiler-dependent macros required for kernel
+ * build go below this comment. Actual compiler/compiler version
+ * specific implementations come from the above header files
+ */
+
+#define likely(x)	__builtin_expect(!!(x), 1)
+
+> # define __builtin_expect(x, expected_value) (x)
+
+> #define STATS_INC_ALLOCHIT(x)	atomic_inc(&(x)->allochit)
+
+> static inline void atomic_inc(volatile atomic_t *v)
+{
+	unsigned long flags;
+
+	local_irq_save(flags);
+	v->counter += 1;
+	local_irq_restore(flags);
+}
+
+> static inline void ** ac_entry(struct array_cache *ac)
+{
+	return (void**)(ac+1);
+}
+
+> 
+/*
+ * struct array_cache
+ *
+ * Per cpu structures
+ * Purpose:
+ * - LIFO ordering, to hand out cache-warm objects from _alloc
+ * - reduce the number of linked list operations
+ * - reduce spinlock operations
+ *
+ * The limit is stored in the per-cpu structure to reduce the data cache
+ * footprint.
+ *
+ */
+
+struct array_cache {
+	unsigned int avail;
+	unsigned int limit;
+	unsigned int batchcount;
+	unsigned int touched;
+};
+
+> #define STATS_INC_ALLOCMISS(x)	atomic_inc(&(x)->allocmiss)

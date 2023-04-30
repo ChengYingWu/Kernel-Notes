@@ -1,0 +1,130 @@
+> #define spin_lock(lock) \
+do { \
+	preempt_disable(); \
+	if (unlikely(!_raw_spin_trylock(lock))) \
+		__preempt_spin_lock(lock); \
+} while (0)
+
+> #define preempt_disable() \
+do { \
+	inc_preempt_count(); \
+	barrier(); \
+} while (0)
+
+> #define inc_preempt_count() \
+do { \
+	preempt_count()++; \
+} while (0)
+
+> #define preempt_count()	(current_thread_info()->preempt_count)
+
+> static inline struct thread_info *current_thread_info(void)
+{
+	register unsigned long sp asm ("sp");
+	return (struct thread_info *)(sp & ~0x1fff);
+}
+
+> #define _raw_spin_trylock(lock)	((void)(lock), 1)
+
+> 
+/*
+ * This could be a long-held lock.  If another CPU holds it for a long time,
+ * and that CPU is not asked to reschedule then *this* CPU will spin on the
+ * lock for a long time, even if *this* CPU is asked to reschedule.
+ *
+ * So what we do here, in the slow (contended) path is to spin on the lock by
+ * hand while permitting preemption.
+ *
+ * Called inside preempt_disable().
+ */
+
+void __preempt_spin_lock(spinlock_t *lock)
+{
+	if (preempt_count() > 1) {
+		_raw_spin_lock(lock);
+		return;
+	}
+	do {
+		preempt_enable();
+		while (spin_is_locked(lock))
+			cpu_relax();
+		preempt_disable();
+	} while (!_raw_spin_trylock(lock));
+}
+
+> #define _raw_spin_lock(lock)	do { (void)(lock); } while(0)
+
+> #define preempt_enable() \
+do { \
+	preempt_enable_no_resched(); \
+	preempt_check_resched(); \
+} while (0)
+
+> #define preempt_enable_no_resched() \
+do { \
+	barrier(); \
+	dec_preempt_count(); \
+} while (0)
+
+> #define preempt_check_resched() \
+do { \
+	if (unlikely(test_thread_flag(TIF_NEED_RESCHED))) \
+		preempt_schedule(); \
+} while (0)
+
+> static inline int test_thread_flag(int flag)
+{
+	return test_bit(flag,&current_thread_info()->flags);
+}
+
+> 
+/*
+ * This routine doesn't need to be atomic.
+ */
+
+static inline int __test_bit(int nr, const unsigned long * p)
+{
+	return (p[nr >> 5] >> (nr & 31)) & 1UL;
+}
+
+>
+/*
+ * thread information flags:
+ *  TIF_SYSCALL_TRACE	- syscall trace active
+ *  TIF_NOTIFY_RESUME	- resumption notification requested
+ *  TIF_SIGPENDING	- signal pending
+ *  TIF_NEED_RESCHED	- rescheduling necessary
+ *  TIF_USEDFPU		- FPU was used by this task this quantum (SMP)
+ *  TIF_POLLING_NRFLAG	- true if poll_idle() is polling TIF_NEED_RESCHED
+ */
+
+#define TIF_NEED_RESCHED	2
+
+> 
+/*
+ * this is is the entry point to schedule() from in-kernel preemption
+ * off of preempt_enable.  Kernel preemptions off return from interrupt
+ * occur there and call schedule directly.
+ */
+ 
+asmlinkage void preempt_schedule(void)
+{
+	struct thread_info *ti = current_thread_info();
+
+	/*
+	 * If there is a non-zero preempt_count or interrupts are disabled,
+	 * we do not want to preempt the current task.  Just return..
+	 */
+	if (unlikely(ti->preempt_count || irqs_disabled()))
+		return;
+
+need_resched:
+	ti->preempt_count = PREEMPT_ACTIVE;
+	schedule();
+	ti->preempt_count = 0;
+
+	/* we could miss a preemption opportunity between schedule and now */
+	barrier();
+	if (unlikely(test_thread_flag(TIF_NEED_RESCHED)))
+		goto need_resched;
+}
