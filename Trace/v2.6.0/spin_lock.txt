@@ -52,7 +52,19 @@ void __preempt_spin_lock(spinlock_t *lock)
 	} while (!_raw_spin_trylock(lock));
 }
 
-> #define _raw_spin_lock(lock)	do { (void)(lock); } while(0)
+> #define _raw_spin_lock(x)		\
+	do { \
+	 	CHECK_LOCK(x); \
+		if ((x)->lock&&(x)->babble) { \
+			(x)->babble--; \
+			printk("%s:%d: spin_lock(%s:%p) already locked by %s/%d\n", \
+					__FILE__,__LINE__, (x)->module, \
+					(x), (x)->owner, (x)->oline); \
+		} \
+		(x)->lock = 1; \
+		(x)->owner = __FILE__; \
+		(x)->oline = __LINE__; \
+	} while (0)
 
 > #define preempt_enable() \
 do { \
@@ -106,7 +118,7 @@ static inline int __test_bit(int nr, const unsigned long * p)
  * off of preempt_enable.  Kernel preemptions off return from interrupt
  * occur there and call schedule directly.
  */
- 
+
 asmlinkage void preempt_schedule(void)
 {
 	struct thread_info *ti = current_thread_info();
@@ -120,7 +132,7 @@ asmlinkage void preempt_schedule(void)
 
 need_resched:
 	ti->preempt_count = PREEMPT_ACTIVE;
-	schedule();
+	schedule(); //IF
 	ti->preempt_count = 0;
 
 	/* we could miss a preemption opportunity between schedule and now */
@@ -128,3 +140,10 @@ need_resched:
 	if (unlikely(test_thread_flag(TIF_NEED_RESCHED)))
 		goto need_resched;
 }
+
+> #define irqs_disabled()			\
+({					\
+	unsigned long flags;		\
+	local_save_flags(flags);	\
+	flags & PSR_I_BIT;		\
+})

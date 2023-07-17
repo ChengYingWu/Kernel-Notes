@@ -1,0 +1,22 @@
+Asynchronous vs synchronous execution
+
+When you execute something synchronously, you wait for it to finish before moving on to another task. 
+When you execute something asynchronously, you can move on to another task before it finishes.
+
+In the context of operating systems, this corresponds to executing a process or task on a "thread." 
+A thread is a series of commands (a block of code) that exist as a unit of work. 
+The operating system runs a given thread on a processor core. 
+However, a processor core can only execute a single thread at once. 
+It has no concept of running multiple threads simultaneously. 
+The operating system can provide the illusion of running multiple threads at once by running each thread 
+for a small slice of time (such as 1ms), and continuously switching between threads.
+
+Now, if you introduce multiple processor cores into the mix, then threads CAN execute at the same time. 
+The operating system can allocate time to one thread on the first processor core, 
+then allocate the same block of time to another thread on a different processor core. 
+All of this is about allowing the operating system to manage the completion of your task 
+while you can go on in your code and do other things.
+
+Summary:
+synchronous就是會等process, thread執行完再接著執行
+asynchronous就是不等執行完就繼續動作。

@@ -1,0 +1,60 @@
+>
+/*
+ * Release global kernel lock.
+ */
+
+static inline void release_kernel_lock(struct task_struct *task)
+{
+	if (unlikely(task->lock_depth >= 0))
+		put_kernel_lock();
+}
+
+> #define put_kernel_lock()	spin_unlock(&kernel_flag)
+
+> #define spin_unlock(lock) \
+do { \
+	_raw_spin_unlock(lock); \
+	preempt_enable(); \
+} while (0)
+
+> #define _raw_spin_unlock(x) \
+	do { \
+	 	CHECK_LOCK(x); \
+		if (!(x)->lock&&(x)->babble) { \
+			(x)->babble--; \
+			printk("%s:%d: spin_unlock(%s:%p) not locked\n", \
+					__FILE__,__LINE__, (x)->module, (x));\
+		} \
+		(x)->lock = 0; \
+	} while (0)
+
+> #define CHECK_LOCK(x) \
+	do { \
+	 	if ((x)->magic != SPINLOCK_MAGIC) { \
+			printk(KERN_ERR "%s:%d: spin_is_locked on uninitialized spinlock %p.\n", \
+					__FILE__, __LINE__, (x)); \
+		} \
+	} while(0)
+
+> #define preempt_enable() \
+do { \
+	preempt_enable_no_resched(); \
+	preempt_check_resched(); \
+} while (0)
+
+> #define preempt_enable_no_resched() \
+do { \
+	barrier(); \
+	dec_preempt_count(); \
+} while (0)
+
+> #define preempt_check_resched() \
+do { \
+	if (unlikely(test_thread_flag(TIF_NEED_RESCHED))) \
+		preempt_schedule(); \
+} while (0)
+
+
+Summary:
+release_kernel_lock會把一個叫kernel_flag的lock成員值設成0，
+接著把preempt_disable部分的值減一，並且檢查有沒有在等待優先執行的thread，有就做schedule。

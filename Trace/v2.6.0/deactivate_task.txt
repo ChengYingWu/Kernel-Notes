@@ -1,0 +1,13 @@
+>
+/*
+ * deactivate_task - remove a task from the runqueue.
+ */
+
+static inline void deactivate_task(struct task_struct *p, runqueue_t *rq)
+{
+	nr_running_dec(rq);
+	if (p->state == TASK_UNINTERRUPTIBLE)
+		rq->nr_uninterruptible++;
+	dequeue_task(p, p->array);
+	p->array = NULL;
+}

@@ -1,0 +1,60 @@
+I/O Ports and I/O Memory
+
+In Microprocessor there are two methods to connect external devices. 
+The methods of connecting external devices are known as mapping. Mapping are two types.
+    1. Memory Mapped I/O (MMIO)
+    2. Port Mapped I/O (PMIO)
+
+> Memory Mapped I/O
+When processor use the central memory (RAM) to communicate with peripheral devices then it is called Memory mapped I/O.
+In this case, all external devices are mapped in the same way as RAM and ROM are mapped to the processor. 
+That means all the peripheral devices can be accessed as similar we access memory. 
+The instructions we use to access memory can be also used to access any I/O devices. 
+There is no need to have another set of instructions for external devices.
+
+> Advantages
+In memory mapped I/O, I/O devices are mapped into the system directly with RAM and ROM. 
+So, to access a hardware, just read or write the memory address using predefined memory access instructions. 
+In Memory Mapped I/O every instructions that is used for memory instructions can be used to maintain a peripheral device.
+
+> Disadvantages
+In Memory Mapped I/O, peripheral devices use the same address bus as memory use. 
+Therefore, there are some disadvantages. For every peripheral device entire data bus needs to decode. 
+For example, If a computer have a 32-bit address bus it will need logic gates to 
+decode the state of all 32 address lines for proper functioning of any device. 
+This increases the cost of computer hardware.
+
+> Port Mapped I/O
+When processor use digital ports to communicate with peripheral devices then it is called Port mapped I/O.
+In port mapped I/O there is used a dedicated address space to communicate with peripherals. 
+This address space is accessed with some special instructions which are completely dedicated to access port mapped I/O. 
+For example Intel 86bit processors use IN and OUT commands to Read and Write data respectively.
+Port mapped IO use the same address bus with dedicated address space. 
+It might be needed only few lines to access all the available devices. 
+Which means less hardware will be needed to decode the address of peripheral devices and system cost will reduce.
+
+> Advantages
+In port mapped I/O, less logic is required to decode the address. 
+Therefore, hardware cost is less. A 32-bits processor normally may have 10 bits of address space for I/O ports. 
+To read and write from a peripheral device these ports are used.
+
+> Disadvantages
+In Port Mapped I/O, the major disadvantage is that more instructions are needed to execute same task. 
+For example, there is a single instruction to test one bit in memory mapped I/O 
+but in port mapped I/O we have to read the data into a register first, then test the bit.
+
+> Memory Mapped I/O vs Port Mapped I/O
+Memory Mapped I/O	                                    |   Port Mapped I/O
+--------------------------------------------------------|------------------------------------------------------------
+Same address space to address memory and I/O devices	|   Different address spaces for memory and I/O devices
+Access to the I/O devices using regular instructions	|   Uses a special set of instructions to access I/O devices
+I/O addressable memory can’t be used by the memory	    |   All address can be used by the memory
+Less Complex due to simple I/O logic	                |   More complex due to more control logic
+Less efficient due to same address bus	                |   More efficient due to separate bus
+Memory Addresses are I/O Addresses	                    |   I/O Addresses are called port
+
+
+Summary:
+處理器有兩種方式去操作外部裝置，Memory Mapped I/O (MMIO)，Port Mapped I/O (PMIO)。
+MMIO就是用RAM來溝通，不需要額外的指令，有可能會用到page table，最好不要直接使用這些位址，用kernel提供的macro較好。
+PMIO就是用專用的位址空間來與周邊裝置溝通，會需要特別的指令才能做到。

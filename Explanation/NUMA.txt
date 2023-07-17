@@ -1,0 +1,20 @@
+Non-uniform memory access vs Uniform memory access
+
+Uniform memory access (UMA) is a shared memory architecture used in parallel computers. 
+All the processors in the UMA model share the physical memory uniformly.
+
+Non-uniform memory access (NUMA) is a computer memory design used in multiprocessing, 
+where the memory access time depends on the memory location relative to the processor. 
+Under NUMA, a processor can access its own local memory faster than non-local memory 
+(memory local to another processor or memory shared between processors).
+
+NUMA (nonuniform memory access) computers are multiprocessor systems where memory is “local” to
+specific groups of processors (“nodes”). Access to local memory is faster than access to nonlocal memory.
+On such systems, allocating memory on the correct node is important. Driver authors do not normally have
+to worry about NUMA issues, however.
+
+Summary:
+UMA跟NUMA是指在多處理器的系統中，記憶體架構的方式。
+UMA是每個processor對每個記憶體存取時間都相同。
+NUMA是proccessor存取每個記憶體的時間會取決於他們距離，存取本地端的記憶體會較快。
+如果有這種架構，有可能在撰寫kernel程式時，要求分配記憶體時，這是一個需要考慮到的點。

@@ -1,0 +1,8 @@
+I/O (Input/Output) ports
+
+I/O (Input/Output) ports (also referred to as I/O addresses) 
+are unique locations in memory reserved for communications between the CPU and specific physical hardware devices. 
+These ports are commonly associated with specific devices and should not be shared.
+
+Summary:
+IO ports是指在記憶體中保留給CPU跟硬體溝通的位址，通常port會有單獨對應的裝置。

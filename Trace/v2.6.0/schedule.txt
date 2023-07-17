@@ -1,0 +1,230 @@
+> 
+/*
+ * schedule() is the main scheduler function.
+ */
+
+asmlinkage void schedule(void)
+{
+	task_t *prev, *next;
+	runqueue_t *rq;
+	prio_array_t *array;
+	struct list_head *queue;
+	unsigned long long now;
+	unsigned long run_time;
+	int idx;
+
+	/*
+	 * Test if we are atomic.  Since do_exit() needs to call into
+	 * schedule() atomically, we ignore that path for now.
+	 * Otherwise, whine if we are scheduling when we should not be.
+	 */
+    
+	if (likely(!(current->state & (TASK_DEAD | TASK_ZOMBIE)))) {
+		if (unlikely(in_atomic())) {
+			printk(KERN_ERR "bad: scheduling while atomic!\n");
+			dump_stack();
+		}
+	}
+	//目前的thread正處於atomic狀態不應該schedule
+
+need_resched:
+	preempt_disable();
+	prev = current;
+	rq = this_rq();
+
+	release_kernel_lock(prev); //IF
+	now = sched_clock();
+	if (likely(now - prev->timestamp < NS_MAX_SLEEP_AVG))
+		run_time = now - prev->timestamp;
+	else
+		run_time = NS_MAX_SLEEP_AVG;
+
+	/*
+	 * Tasks with interactive credits get charged less run_time
+	 * at high sleep_avg to delay them losing their interactive
+	 * status
+	 */
+	if (HIGH_CREDIT(prev))
+		run_time /= (CURRENT_BONUS(prev) ? : 1);
+
+	spin_lock_irq(&rq->lock);
+
+	/*
+	 * if entering off of a kernel preemption go straight
+	 * to picking the next task.
+	 */
+	if (unlikely(preempt_count() & PREEMPT_ACTIVE))
+		goto pick_next_task;
+
+	switch (prev->state) {
+	case TASK_INTERRUPTIBLE:
+		if (unlikely(signal_pending(prev))) {
+			prev->state = TASK_RUNNING;
+			break;
+		}
+	default:
+		deactivate_task(prev, rq);
+		prev->nvcsw++;
+		break;
+	case TASK_RUNNING:
+		prev->nivcsw++;
+	}
+pick_next_task:
+	if (unlikely(!rq->nr_running)) {
+#ifdef CONFIG_SMP
+		load_balance(rq, 1, cpu_to_node_mask(smp_processor_id()));
+		if (rq->nr_running)
+			goto pick_next_task;
+#endif
+		next = rq->idle;
+		rq->expired_timestamp = 0;
+		goto switch_tasks;
+	}
+
+	array = rq->active;
+	if (unlikely(!array->nr_active)) {
+		/*
+		 * Switch the active and expired arrays.
+		 */
+		rq->active = rq->expired;
+		rq->expired = array;
+		array = rq->active;
+		rq->expired_timestamp = 0;
+	}
+
+	idx = sched_find_first_bit(array->bitmap);
+	queue = array->queue + idx;
+	next = list_entry(queue->next, task_t, run_list);
+
+	if (next->activated > 0) {
+		unsigned long long delta = now - next->timestamp;
+
+		if (next->activated == 1)
+			delta = delta * (ON_RUNQUEUE_WEIGHT * 128 / 100) / 128;
+
+		array = next->array;
+		dequeue_task(next, array);
+		recalc_task_prio(next, next->timestamp + delta);
+		enqueue_task(next, array);
+	}
+	next->activated = 0;
+switch_tasks:
+	prefetch(next);
+	clear_tsk_need_resched(prev);
+	RCU_qsctr(task_cpu(prev))++;
+
+	prev->sleep_avg -= run_time;
+	if ((long)prev->sleep_avg <= 0){
+		prev->sleep_avg = 0;
+		if (!(HIGH_CREDIT(prev) || LOW_CREDIT(prev)))
+			prev->interactive_credit--;
+	}
+	prev->timestamp = now;
+
+	if (likely(prev != next)) {
+		next->timestamp = now;
+		rq->nr_switches++;
+		rq->curr = next;
+
+		prepare_arch_switch(rq, next);
+		prev = context_switch(rq, prev, next);
+		barrier();
+
+		finish_task_switch(prev);
+	} else
+		spin_unlock_irq(&rq->lock);
+
+	reacquire_kernel_lock(current);
+	preempt_enable_no_resched();
+	if (test_thread_flag(TIF_NEED_RESCHED))
+		goto need_resched;
+}
+
+EXPORT_SYMBOL(schedule);
+
+> # define in_atomic()	((preempt_count() & ~PREEMPT_ACTIVE) != kernel_locked()) 
+	// True if kernel_locked is False and preempt_count is not 0
+
+> #define PREEMPT_ACTIVE	0x04000000
+
+> #define kernel_locked()		(current->lock_depth >= 0)
+
+> void dump_stack(void)
+{
+#ifdef CONFIG_DEBUG_ERRORS
+	__backtrace();
+#endif
+}
+EXPORT_SYMBOL(dump_stack);
+
+> ENTRY(__backtrace)
+		mov	r1, #0x10
+		mov	r0, fp
+
+> #define ENTRY(name) \
+  .globl name; \
+  ALIGN; \
+  name:
+
+> #define preempt_disable() \
+do { \
+	inc_preempt_count(); \
+	barrier(); \
+} while (0)
+
+> #define this_rq()		(&__get_cpu_var(runqueues))
+
+> 
+/*
+ * Scheduler clock - returns current time in nanosec units.
+ */
+
+unsigned long long sched_clock(void)
+{
+	return (unsigned long long)jiffies * (1000000000 / HZ);
+}
+
+> #define HIGH_CREDIT(p) \
+	((p)->interactive_credit > CREDIT_LIMIT)
+
+>
+/*
+ * If a task is 'interactive' then we reinsert it in the active
+ * array after it has expired its current timeslice. (it will not
+ * continue to run immediately, it will still roundrobin with
+ * other interactive tasks.)
+ *
+ * This part scales the interactivity limit depending on niceness.
+ *
+ * We scale it linearly, offset by the INTERACTIVE_DELTA delta.
+ * Here are a few examples of different nice levels:
+ *
+ *  TASK_INTERACTIVE(-20): [1,1,1,1,1,1,1,1,1,0,0]
+ *  TASK_INTERACTIVE(-10): [1,1,1,1,1,1,1,0,0,0,0]
+ *  TASK_INTERACTIVE(  0): [1,1,1,1,0,0,0,0,0,0,0]
+ *  TASK_INTERACTIVE( 10): [1,1,0,0,0,0,0,0,0,0,0]
+ *  TASK_INTERACTIVE( 19): [0,0,0,0,0,0,0,0,0,0,0]
+ *
+ * (the X axis represents the possible -5 ... 0 ... +5 dynamic
+ *  priority range a task can explore, a value of '1' means the
+ *  task is rated interactive.)
+ *
+ * Ie. nice +19 tasks can never get 'interactive' enough to be
+ * reinserted into the active array. And only heavily CPU-hog nice -20
+ * tasks will be expired. Default nice 0 tasks are somewhere between,
+ * it takes some effort for them to get interactive, but it's not
+ * too hard.
+ */
+
+#define CURRENT_BONUS(p) \
+	(NS_TO_JIFFIES((p)->sleep_avg) * MAX_BONUS / \
+		MAX_SLEEP_AVG)
+
+> #define spin_lock_irq(lock) \
+do { \
+	local_irq_disable(); \
+	preempt_disable(); \
+	_raw_spin_lock(lock); \
+} while (0)
+
+>
